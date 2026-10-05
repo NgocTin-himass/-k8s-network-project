@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python-check:
+    name: Python check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r API/requirements.txt
+
+      - name: Compile Python
+        run: python -m compileall API
+
+      - name: Import FastAPI app
+        working-directory: API
+        run: python -c "from app import app; print(app.title)"
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: python-check
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./API
+          push: false
+          tags: network-api:ci
+
+  kubernetes-validate:
+    name: Kubernetes validation
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate Kubernetes manifests
+        run: |
+          docker run --rm \
+            -v "$PWD:/workdir" \
+            ghcr.io/yannh/kubeconform:v0.8.0 \
+            -strict \
+            -summary \
+            /workdir/k8s/api-deployment.yaml \
+            /workdir/k8s/api-service.yaml \
+            /workdir/k8s/api-ingress.yaml \
+            /workdir/k8s/hpa.yaml \
+            /workdir/k8s/redis-deployment.yaml \
+            /workdir/k8s/redis-service.yaml \
+            /workdir/k8s/redis-networkpolicy.yaml
