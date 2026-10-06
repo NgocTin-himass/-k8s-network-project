@@ -1,0 +1,43 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to KIND
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check Kubernetes context
+        run: kubectl config current-context
+
+      - name: Build Docker image
+        run: docker build -t network-api:v2 ./API
+
+      - name: Load image into KIND
+        run: kind load docker-image network-api:v2 --name network-lab
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/redis-deployment.yaml
+          kubectl apply -f k8s/redis-service.yaml
+          kubectl apply -f k8s/redis-networkpolicy.yaml
+          kubectl apply -f k8s/api-deployment.yaml
+          kubectl apply -f k8s/api-service.yaml
+          kubectl apply -f k8s/api-ingress.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Wait for API rollout
+        run: kubectl rollout status deployment/api --timeout=120s
+
+      - name: Check pods
+        run: kubectl get pods -o wide
